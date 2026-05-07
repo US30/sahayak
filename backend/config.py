@@ -9,10 +9,10 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # --- LLM / API ---
-    ANTHROPIC_API_KEY: str = Field(default="", description="Anthropic API key")
+    DEEPSEEK_API_KEY: str = Field(default="", description="DeepSeek API key")
     MODEL_CLOUD: str = Field(
-        default="claude-opus-4-7",
-        description="Cloud model identifier (Anthropic)",
+        default="deepseek-chat",
+        description="Cloud model identifier (DeepSeek). Use 'deepseek-reasoner' for R1.",
     )
     MODEL_ON_DEVICE: str = Field(
         default="models/gemma-2-2b-it/gemma-2-2b-it.Q4_K_M.gguf",

@@ -49,7 +49,7 @@ def _compute_complexity(query: str) -> float:
 
 
 class EdgeCloudRouter:
-    """Routes LLM inference to on-device (llama-cpp) or cloud (Anthropic Claude)
+    """Routes LLM inference to on-device (llama-cpp) or cloud (DeepSeek)
     based on a lightweight query-complexity heuristic."""
 
     def __init__(self) -> None:
@@ -67,10 +67,11 @@ class EdgeCloudRouter:
         log.info("router.init.done")
 
     def _load_clients(self) -> None:
-        import anthropic
+        from openai import AsyncOpenAI
 
-        self._cloud_client = anthropic.AsyncAnthropic(
-            api_key=settings.ANTHROPIC_API_KEY
+        self._cloud_client = AsyncOpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com",
         )
 
         model_path = settings.MODEL_ON_DEVICE
@@ -130,14 +131,17 @@ class EdgeCloudRouter:
         system_prompt: str,
         history: list[dict[str, str]],
     ) -> str:
-        messages = [*history, {"role": "user", "content": query}]
-        response = await self._cloud_client.messages.create(
+        messages = [
+            {"role": "system", "content": system_prompt},
+            *history,
+            {"role": "user", "content": query},
+        ]
+        response = await self._cloud_client.chat.completions.create(
             model=settings.MODEL_CLOUD,
             max_tokens=1024,
-            system=system_prompt,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
         )
-        return response.content[0].text  # type: ignore[index]
+        return response.choices[0].message.content or ""
 
     # ------------------------------------------------------------------
     # On-device inference

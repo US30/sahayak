@@ -170,25 +170,32 @@ class OCRService:
         }
 
     def _llm_parse_sync(self, text: str) -> dict[str, Any]:
-        """Call Anthropic Claude to extract medicine fields from raw OCR text."""
+        """Call DeepSeek to extract medicine fields from raw OCR text."""
         try:
-            import anthropic  # type: ignore[import]
             import json as _json
 
-            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            from openai import OpenAI
+
+            client = OpenAI(
+                api_key=settings.DEEPSEEK_API_KEY,
+                base_url="https://api.deepseek.com",
+            )
             prompt = (
                 "Extract medicine information from the following OCR text. "
                 "Return ONLY a JSON object with keys: name, dosage, frequency. "
                 "Use empty string if a field cannot be determined.\n\n"
                 f"OCR Text:\n{text}\n\nJSON:"
             )
-            message = client.messages.create(
+            response = client.chat.completions.create(
                 model=settings.MODEL_CLOUD,
                 max_tokens=256,
-                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": "You are a precise medical data extractor. Return only valid JSON."},
+                    {"role": "user", "content": prompt},
+                ],
             )
-            raw = message.content[0].text.strip()
-            # Strip markdown code fences if present
+            raw = (response.choices[0].message.content or "").strip()
             raw = re.sub(r"^```(?:json)?\s*", "", raw)
             raw = re.sub(r"\s*```$", "", raw)
             return _json.loads(raw)
