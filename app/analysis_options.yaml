@@ -1,0 +1,14 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # Prefer const constructors for better performance
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    # Avoid print in production code
+    avoid_print: true
+    # Require type annotations for public APIs
+    always_declare_return_types: true
+    # Async rules
+    unawaited_futures: true
+    avoid_void_async: true

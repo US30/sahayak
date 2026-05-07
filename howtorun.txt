@@ -1,0 +1,234 @@
+==============================================================================
+SAHAYAK — HOW TO RUN
+==============================================================================
+
+PREREQUISITES
+-------------
+- Python 3.11+
+- Flutter SDK 3.22+ (https://flutter.dev/docs/get-started/install)
+- Android SDK / Android emulator (API 33+) or physical Android device
+- ffmpeg (for audio processing)
+  macOS:  brew install ffmpeg tesseract
+  Ubuntu: sudo apt install ffmpeg tesseract-ocr
+- cmake (for llama-cpp-python build)
+  macOS:  brew install cmake
+  Ubuntu: sudo apt install cmake build-essential
+
+ACCOUNTS / KEYS NEEDED
+-----------------------
+- Anthropic API key → https://console.anthropic.com/
+  (Claude API is used for cloud LLM + LLM-as-judge eval)
+
+==============================================================================
+STEP 1 — BACKEND SETUP
+==============================================================================
+
+cd sahayak/
+
+# Copy env file and fill in your Anthropic key
+cp backend/.env.example backend/.env
+# Edit backend/.env:
+#   ANTHROPIC_API_KEY=sk-ant-...
+
+# Create data directories
+mkdir -p backend/data/lancedb backend/data/faces
+
+# Install Python dependencies (recommend a virtualenv)
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r backend/requirements.txt
+
+  NOTE: llama-cpp-python compiles a C++ extension. On Apple Silicon:
+    CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python
+  On CPU-only Linux:
+    pip install llama-cpp-python
+
+  NOTE: InsightFace requires onnxruntime. On Apple Silicon use:
+    pip install onnxruntime-silicon   (or just onnxruntime)
+
+# Start the backend
+cd backend/
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+  Verify: curl http://localhost:8000/
+  Expected: {"status":"ok","version":"1.0.0","uptime_seconds":...}
+
+==============================================================================
+STEP 2 — CAREGIVER DASHBOARD
+==============================================================================
+
+# In a new terminal (with .venv activated):
+cd sahayak/
+streamlit run dashboard/app.py
+
+  Opens at: http://localhost:8501
+  Enter Patient User ID in sidebar (default: default_user)
+
+==============================================================================
+STEP 3 — FLUTTER APP (Android)
+==============================================================================
+
+cd sahayak/app/
+
+# Install Flutter dependencies
+flutter pub get
+
+# Check device/emulator is connected
+flutter devices
+
+# Run on connected device
+flutter run
+
+  On first run, grant permissions:
+    - Microphone (required for voice queries)
+    - Camera (required for face detection)
+    - Location (optional, used for wandering detection)
+
+  In Settings screen:
+    - Set User ID (must match what you use in the dashboard)
+    - Base URL: http://10.0.2.2:8000  (Android emulator)
+                http://<your-LAN-IP>:8000  (physical device)
+
+# Build release APK
+flutter build apk --release
+# APK at: build/app/outputs/flutter-apk/app-release.apk
+
+==============================================================================
+STEP 4 — ON-DEVICE LLM (OPTIONAL — for privacy mode)
+==============================================================================
+
+Download Gemma-2-2B-IT in GGUF format:
+  https://huggingface.co/google/gemma-2-2b-it-GGUF
+
+mkdir -p backend/models/gemma-2-2b-it/
+# Place: backend/models/gemma-2-2b-it/gemma-2-2b-it.Q4_K_M.gguf
+
+In backend/.env set:
+  MODEL_ON_DEVICE=models/gemma-2-2b-it/gemma-2-2b-it.Q4_K_M.gguf
+  ON_DEVICE_THRESHOLD=0.7   # queries with complexity score < 0.7 → on-device
+
+Test on-device speed (need 5+ tok/s for usable UX):
+  Pixel 8 Pro / Snapdragon 8 Gen 2+: ~8-12 tok/s with Q4_K_M
+  Older devices: consider cloud-only mode (ON_DEVICE_THRESHOLD=0.0)
+
+==============================================================================
+STEP 5 — FEDERATED LEARNING (OPTIONAL)
+==============================================================================
+
+# Start FL server (port 9090)
+cd backend/
+python -c "from federation.server import start_fl_server; start_fl_server(num_rounds=3)"
+
+# Trigger a round via API
+curl -X POST http://localhost:8000/federation/round
+
+# Log caregiver feedback (trains personalization model)
+curl -X POST http://localhost:8000/federation/feedback \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"default_user","interaction_id":"abc123","thumbs_up":true,"features":{}}'
+
+  FL requires minimum 2 client devices. For local testing, run two backend
+  instances on different ports acting as two FL clients.
+
+==============================================================================
+STEP 6 — REGISTER FAMILY MEMBERS (Face Recognition)
+==============================================================================
+
+Via dashboard (Faces tab → Add Person) or direct API:
+
+curl -X POST http://localhost:8000/face/register \
+  -F "name=Rahul" \
+  -F "relationship=Son" \
+  -F "user_id=default_user" \
+  -F "image_file=@/path/to/photo.jpg"
+
+# Confirm face (caregiver approval step)
+curl -X POST http://localhost:8000/face/<person_id>/confirm
+
+==============================================================================
+STEP 7 — LOG ROUTINE EVENTS (for anomaly detection)
+==============================================================================
+
+curl -X POST http://localhost:8000/routine/default_user/event \
+  -H "Content-Type: application/json" \
+  -d '{"type":"meal","timestamp":"2024-01-15T08:30:00Z","metadata":{"meal":"breakfast"}}'
+
+curl -X POST http://localhost:8000/routine/default_user/event \
+  -d '{"type":"medication","timestamp":"2024-01-15T08:05:00Z","metadata":{"name":"Amlodipine","taken":true}}'
+
+  After ~7 days of events, routine baselines are learned.
+  Anomaly detection starts alerting when events deviate >2h from baseline.
+
+==============================================================================
+STEP 8 — RUN EVALUATION (50-scenario benchmark)
+==============================================================================
+
+# Trigger eval job
+curl -X POST http://localhost:8000/eval/run \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"eval_user"}' | python -m json.tool
+
+# Returns: {"job_id": "abc-123"}
+
+# Poll results (runs async, takes 10-30 min)
+curl http://localhost:8000/eval/results/abc-123 | python -m json.tool
+
+# Download markdown report
+curl http://localhost:8000/eval/report/abc-123
+
+  Or use dashboard: Evaluation tab → Start Evaluation
+
+==============================================================================
+FULL DEV STACK (all at once)
+==============================================================================
+
+Terminal 1:  cd sahayak/backend && uvicorn main:app --reload --port 8000
+Terminal 2:  cd sahayak && streamlit run dashboard/app.py
+Terminal 3:  cd sahayak/app && flutter run
+
+==============================================================================
+COMMON ISSUES
+==============================================================================
+
+Issue: "InsightFace model download fails"
+Fix:   Models auto-download on first run to ~/.insightface/models/
+       Ensure internet access. Manual download: buffalo_l from
+       https://github.com/deepinsight/insightface/releases
+
+Issue: "Whisper model download slow"
+Fix:   First run downloads ~466MB (small model). Set WHISPER_MODEL=tiny
+       in .env for faster startup during development.
+
+Issue: "TTS model 2GB download on first run"
+Fix:   Coqui XTTS v2 is ~2GB. Set a custom HF cache:
+       export HF_HOME=/path/with/space
+
+Issue: "Flutter: RECORD_AUDIO permission denied on emulator"
+Fix:   Extended controls → Microphone → enable mic forwarding
+
+Issue: "Backend crashes: pydantic_settings not found"
+Fix:   pip install pydantic-settings
+
+Issue: "llama-cpp-python build fails on macOS"
+Fix:   xcode-select --install && pip install llama-cpp-python --no-cache-dir
+
+==============================================================================
+API REFERENCE (quick)
+==============================================================================
+
+GET  /                          Health check
+POST /transcribe                Audio file → transcript
+POST /agent/query               Natural language query → AI response
+GET  /memory/{user_id}/recent   Recent episodic memories
+POST /memory/query              Semantic memory search
+POST /face/register             Register a person's face
+POST /face/recognize            Identify faces in image
+GET  /anomaly/{user_id}/active  Active anomaly alerts
+GET  /routine/{user_id}         Learned daily routine
+POST /eval/run                  Start evaluation job
+WS   /ws/{user_id}              Real-time audio streaming WebSocket
+
+Full interactive docs: http://localhost:8000/docs  (Swagger UI)
+                       http://localhost:8000/redoc (ReDoc)
+
+==============================================================================
