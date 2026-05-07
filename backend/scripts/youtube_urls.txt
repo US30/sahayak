@@ -1,0 +1,13 @@
+# YouTube URLs for elderly Indian speech corpus
+# Add public-domain or CC-licensed videos of elderly Hindi/Telugu/Tamil speakers
+# Format: one URL per line, lines starting with # are ignored
+#
+# Good sources:
+#   - Doordarshan interviews with elderly guests
+#   - State government public health awareness videos (elderly speakers)
+#   - Common Voice Hindi dataset (https://commonvoice.mozilla.org/hi)
+#   - IIIT Hyderabad IIIT-H Indic Speech Databases (request via institution)
+#   - LDC IARPA BABEL Hindi collection (if your college has LDC access)
+#
+# Example format:
+# https://www.youtube.com/watch?v=XXXXXXXXXXX
